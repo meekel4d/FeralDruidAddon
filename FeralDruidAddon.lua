@@ -133,22 +133,18 @@ end
 -- Function to cast Innervate if mana is low and the toggle is enabled
 function FDA.CastInnervateIfLowMana()
     if not FDA_Settings.UseInnervate then
-        FDA.debug_print("Innervate usage is disabled.")
         return false  -- Exit if Innervate usage is disabled
     end
 
     local currentMana, maxMana = AceLibrary("DruidManaLib-1.0"):GetMana()
-    FDA.debug_print("Current Mana: " .. currentMana .. " / " .. maxMana)
 
     local start, duration, enabled = FDA.GetSpellCooldownByName(FDA.INNERVATE_NAME)
     if start > 0 and duration > 0 then
         local cooldownRemaining = start + duration - GetTime()
-        FDA.debug_print("Innervate is on cooldown: " .. cooldownRemaining .. " seconds remaining")
         return false -- Indicate that Innervate was not cast
     end
 
     if currentMana < 600 then
-        FDA.debug_print("Mana is low. Casting Innervate.")
         FDA.CastSpell(FDA.INNERVATE_NAME)
         return true -- Indicate that Innervate was cast
     end
@@ -239,7 +235,6 @@ end
 
 function FDA.CastSpell(spellName)
     if spellName then
-        FDA.debug_print("Casting " .. spellName)
         CastSpellByName(spellName)
     end
 end
@@ -247,18 +242,15 @@ end
 -- Function to check and cast Innervate if mana is low
 function FDA.CastInnervateIfLowMana()
     local currentMana, maxMana = AceLibrary("DruidManaLib-1.0"):GetMana()
-    FDA.debug_print("Current Mana: " .. currentMana .. " / " .. maxMana)
 
     -- Use the cooldown tracking logic
     local start, duration, enabled = FDA.GetSpellCooldownByName(FDA.INNERVATE_NAME)
     if start > 0 and duration > 0 then
         local cooldownRemaining = start + duration - GetTime()
-        FDA.debug_print("Innervate is on cooldown: " .. string.format("%.1f", cooldownRemaining) .. " seconds remaining.")
         return false -- Indicate that Innervate was not cast
     end
 
     if currentMana < 600 then
-        FDA.debug_print("Mana is low. Casting Innervate.")
         FDA.CastSpell(FDA.INNERVATE_NAME)
         return true -- Indicate that Innervate was cast
     end
@@ -273,14 +265,12 @@ end
 
 function FDA.CastFaerieFire()
     if not FDA.HasFaerieFireDebuff() then
-        FDA.debug_print("Casting Faerie Fire (Feral)")
         FDA.CastSpell(FDA.FAERIE_FIRE_FERAL_NAME)
     end
 end
 
 function FDA.CastTigersFury()
     if not FDA.HasTigersFuryBuff() then
-        FDA.debug_print("Casting Tiger's Fury")
         FDA.CastSpell(FDA.TIGERS_FURY_NAME)
         return true
     end
@@ -291,11 +281,7 @@ function FDA.PowershiftIfLowEnergy()
     local energy = FDA.GetEnergy()
     local currentMana = AceLibrary("DruidManaLib-1.0"):GetMana()
 
-    FDA.debug_print("Current Energy: " .. energy)
-    FDA.debug_print("Caster Mana: " .. currentMana)
-
     if energy < 11 and currentMana >= 306 and not FDA.HasClearcastingBuff() then
-        FDA.debug_print("Powershifting for energy recovery")
         if FDA.IsInCatForm() then
             FDA.CastSpell(FDA.CAT_FORM_NAME)
         end
@@ -305,13 +291,10 @@ end
 
 function FDA.CastShred()
     local currentEnergy = FDA.GetEnergy()
-    FDA.debug_print("Current Energy: " .. currentEnergy)
 
     if currentEnergy >= FDA.SHRED_ENERGY or FDA.HasClearcastingBuff() then
-        FDA.debug_print("Casting Shred")
         FDA.CastSpell(FDA.SHRED_NAME)
     else
-        FDA.debug_print("Not enough energy to cast Shred")
     end
 end
 
@@ -319,13 +302,9 @@ function FDA.CastFerociousBite()
     local currentEnergy = FDA.GetEnergy()
     local comboPoints = FDA.GetCurrentComboPoints()
 
-    FDA.debug_print("Current Combo Points: " .. comboPoints)
-
     if comboPoints == 5 and (currentEnergy < 79 and currentEnergy >= FDA.FEROCIOUS_BITE_ENERGY) or FDA.HasClearcastingBuff() then
-        FDA.debug_print("Casting Ferocious Bite")
         FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
     else
-        FDA.debug_print("Not enough combo points or energy to cast Ferocious Bite")
     end
 end
 
@@ -333,12 +312,8 @@ function FDA.CastShredHighEnergy()
     local currentEnergy = FDA.GetEnergy()
     local comboPoints = FDA.GetCurrentComboPoints()
 
-    -- Debug message to print current energy
-    FDA.debug_print("Current Energy: " .. currentEnergy)
-
     -- Cast Shred if combo points are 5 and energy is greater than or equal to 83
     if currentEnergy >= 80 and comboPoints == 5 then
-        FDA.debug_print("Casting Shred at 5 combo points and energy >= 83")
         FDA.CastSpell(FDA.SHRED_NAME) -- Cast Shred using the spell name
     end
 end
@@ -349,7 +324,6 @@ function FDA.FeralDruidRotation()
     end
 
     if not FDA.IsInCatForm() then
-        FDA.debug_print("Shifting into Cat Form")
         FDA.CastSpell(FDA.CAT_FORM_NAME)
         return
     end
@@ -382,7 +356,6 @@ end
 -- Function to cast Faerie Fire (Feral) if not already applied on the target
 function FDA.CastFaerieFire()
     if not FDA.HasFaerieFireDebuff() then
-        FDA.debug_print("Casting Faerie Fire (Feral)")
         FDA.CastSpell(FDA.FAERIE_FIRE_FERAL_NAME)
     end
 end
@@ -390,7 +363,6 @@ end
 -- Function to cast Tiger's Fury if not already active
 function FDA.CastTigersFury()
     if not FDA.HasTigersFuryBuff() then
-        FDA.debug_print("Casting Tiger's Fury")
         FDA.CastSpell(FDA.TIGERS_FURY_NAME)
         return true
     end
@@ -400,7 +372,6 @@ end
 -- Function to cast Faerie Fire (Feral) if not already applied on the target
 function FDA.CastFaerieFire()
     if not FDA.HasFaerieFireDebuff() then
-        FDA.debug_print("Casting Faerie Fire (Feral)")
         FDA.CastSpell(FDA.FAERIE_FIRE_FERAL_NAME)
     end
 end
@@ -408,7 +379,6 @@ end
 -- Function to cast Tiger's Fury if not already active
 function FDA.CastTigersFury()
     if not FDA.HasTigersFuryBuff() then
-        FDA.debug_print("Casting Tiger's Fury")
         FDA.CastSpell(FDA.TIGERS_FURY_NAME)
         return true
     end
@@ -424,7 +394,6 @@ function FDA.FeralDruidClawRotation()
 
     -- Check if not in Cat Form, and shift into it if needed
     if not FDA.IsInCatForm() then
-        FDA.debug_print("Shifting into Cat Form")
         FDA.CastSpell(FDA.CAT_FORM_NAME)
         return
     end
@@ -439,7 +408,6 @@ function FDA.FeralDruidClawRotation()
 
     -- Prioritize Clearcasting Claw
     if FDA.HasClearcastingBuff() then
-        FDA.debug_print("Clearcasting active. Casting Claw.")
         FDA.CastSpell("Claw") -- Use Claw immediately with Clearcasting
         return
     end
@@ -450,19 +418,15 @@ function FDA.FeralDruidClawRotation()
 
     if comboPoints < 5 then
         -- Cast Claw if combo points are less than 5
-        FDA.debug_print("Casting Claw with " .. tostring(comboPoints) .. " combo points.")
         FDA.CastSpell("Claw")
     elseif comboPoints == 5 and currentEnergy >= 80 then
         -- Cast Ferocious Bite if combo points are 5 and energy >= 80
-        FDA.debug_print("Casting Ferocious Bite at 5 combo points and sufficient energy.")
         FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
     else
         -- Cast Ferocious Bite if combo points are 5 and energy is less than 80 but enough to cast
         if currentEnergy >= FDA.FEROCIOUS_BITE_ENERGY then
-            FDA.debug_print("Casting Ferocious Bite at 5 combo points.")
             FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
         else
-            FDA.debug_print("Not enough energy for Ferocious Bite. Waiting.")
         end
     end
 
