@@ -1,11 +1,19 @@
+-----------------------------
+-- FeralDruidAddon for Turtle WoW 1.12.1
+-----------------------------
+
 FDA = FDA or {}
 
 -- Initialize saved variables table
 FDA_Settings = FDA_Settings or {}
 FDA_Settings.UseInnervate = FDA_Settings.UseInnervate or true  -- Default to true if not set
-FDA_Settings.UseTigersFury = FDA_Settings.UseTigersFury or true -- Default to true
+FDA_Settings.UseBloodFrenzy = FDA_Settings.UseBloodFrenzy or true -- Default to true
 FDA_Settings.StaticMainHandSpeed = FDA_Settings.StaticMainHandSpeed or nil -- Default to nil
 
+-- Blood Frenzy event tracking variables
+FDA.BF_LastGainTime = 0    -- Set when "You gain Blood Frenzy." is detected
+FDA.BF_LastFadeTime = 0    -- Set when "Blood Frenzy fades from you." is detected
+FDA.BF_ReadyTime    = 0    -- Set when "You can Blood Frenzy." is detected
 
 FDA.DEBUG = false
 
@@ -27,7 +35,7 @@ end
 -- Function to toggle DEBUG mode
 function FDA.ToggleDebugMode()
     FDA.DEBUG = not FDA.DEBUG
-    local status = FDA.DEBUG and "|cff00ff00enabled|r" or "|cffff0000disabled|r"  -- Green for enabled, red for disabled
+    local status = FDA.DEBUG and "|cff00ff00enabled|r" or "|cffff0000disabled|r"
     FDA.tp_print("DEBUG mode is now " .. status .. ".")
 end
 
@@ -49,40 +57,43 @@ FDA.FEROCIOUS_BITE_ENERGY = 35
 -- Buff and debuff textures
 FDA.FAERIE_FIRE_TEXTURE = "Interface\\Icons\\Spell_Nature_FaerieFire"
 FDA.CLEARCASTING_TEXTURE = "Interface\\Icons\\Spell_Shadow_ManaBurn"
-FDA.BLOOD_FRENZY_TEXTURE = "Interface\\Icons\\Ability_GhoulFrenzy"
+FDA.BLOOD_FRENZY_TEXTURE = "Interface\\Icons\\Ability_GhoulFrenzy"  -- Blood Frenzy texture
 
--- Functions
+-----------------------------
+-- Utility Functions
+-----------------------------
 
 function strsplit(delim, str, maxNb, onlyLast)
-	-- Eliminate bad cases...
-	if string.find(str, delim) == nil then
-		return { str }
-	end
-	if maxNb == nil or maxNb < 1 then
-		maxNb = 0
-	end
-	local result = {}
-	local pat = "(.-)" .. delim .. "()"
-	local nb = 0
-	local lastPos
-	for part, pos in string.gfind(str, pat) do
-		nb = nb + 1
-		result[nb] = part
-		lastPos = pos
-		if nb == maxNb then break end
-	end
-	-- Handle the last field
-	if nb ~= maxNb then
-		result[nb+1] = string.sub(str, lastPos)
-	end
-	if onlyLast then
-		return result[nb+1]
-	else
-		return result[1], result[2]
-	end
+    if string.find(str, delim) == nil then
+        return { str }
+    end
+    if maxNb == nil or maxNb < 1 then
+        maxNb = 0
+    end
+    local result = {}
+    local pat = "(.-)" .. delim .. "()"
+    local nb = 0
+    local lastPos
+    for part, pos in string.gfind(str, pat) do
+        nb = nb + 1
+        result[nb] = part
+        lastPos = pos
+        if nb == maxNb then break end
+    end
+    if nb ~= maxNb then
+        result[nb+1] = string.sub(str, lastPos)
+    end
+    if onlyLast then
+        return result[nb+1]
+    else
+        return result[1], result[2]
+    end
 end
 
--- Function to toggle Innervate usage and show current state
+-----------------------------
+-- Innervate Toggle and Command
+-----------------------------
+
 function FDA.ToggleInnervateUsage(status)
     if status == "on" then
         FDA_Settings.UseInnervate = true
@@ -95,7 +106,6 @@ function FDA.ToggleInnervateUsage(status)
     end
 end
 
--- Slash command to toggle Innervate usage or display current state
 SLASH_FDAINNERVATE1 = "/fda"
 SlashCmdList["FDAINNERVATE"] = function(msg)
     local command, param = strsplit(" ", msg)
@@ -109,31 +119,31 @@ SlashCmdList["FDAINNERVATE"] = function(msg)
         end
     else
         FDA.tp_print("Available commands: /fda innervate on, /fda innervate off, or /fda innervate to view the current state.")
-        FDA.tp_print("/recordas to record your STATIC ATTACK SPEED. Use this when in Cat form WITHOUT TIGER'S FURY ACTIVE. This will use your attack speed as a reference for recasting Tiger's fury.")
+        FDA.tp_print("/recordas to record your STATIC ATTACK SPEED. Use this when in Cat form WITHOUT BLOOD FRENZY ACTIVE. This will use your attack speed as a reference for recasting Tiger's Fury.")
     end
 end
 
--- Function to get spell cooldown by name
+-----------------------------
+-- Spell/Cooldown and Buff Functions
+-----------------------------
+
 function FDA.GetSpellCooldownByName(spellName)
-    -- Loop through the spellbook to find the spell
     for tab = 1, GetNumSpellTabs() do
         local _, _, offset, numSpells = GetSpellTabInfo(tab)
         for i = offset + 1, offset + numSpells do
             local spell = GetSpellName(i, BOOKTYPE_SPELL)
             if spell == spellName then
-                -- Get cooldown for the found spell
                 local start, duration, enabled = GetSpellCooldown(i, BOOKTYPE_SPELL)
-                return start or 0, duration or 0, enabled or 0 -- Ensure no nil values
+                return start or 0, duration or 0, enabled or 0
             end
         end
     end
-    return 0, 0, 0 -- Spell not found, default cooldown values
+    return 0, 0, 0
 end
 
--- Function to cast Innervate if mana is low and the toggle is enabled
 function FDA.CastInnervateIfLowMana()
     if not FDA_Settings.UseInnervate then
-        return false  -- Exit if Innervate usage is disabled
+        return false
     end
 
     local currentMana, maxMana = AceLibrary("DruidManaLib-1.0"):GetMana()
@@ -141,32 +151,33 @@ function FDA.CastInnervateIfLowMana()
     local start, duration, enabled = FDA.GetSpellCooldownByName(FDA.INNERVATE_NAME)
     if start > 0 and duration > 0 then
         local cooldownRemaining = start + duration - GetTime()
-        return false -- Indicate that Innervate was not cast
+        return false
     end
 
     if currentMana < 600 then
         FDA.CastSpell(FDA.INNERVATE_NAME)
-        return true -- Indicate that Innervate was cast
+        return true
     end
 
     return false
 end
 
-function FDA.ToggleTigersFury()
-    FDA_Settings.UseTigersFury = not FDA_Settings.UseTigersFury -- Toggle the state
-    local status = FDA_Settings.UseTigersFury and "|cff00ff00enabled|r" or "|cffff0000disabled|r" -- Green for enabled, red for disabled
-    DEFAULT_CHAT_FRAME:AddMessage("Tiger's Fury usage is now " .. status .. ".")
+-- Toggle Blood Frenzy usage (i.e. whether to use the spell that triggers Blood Frenzy)
+function FDA.ToggleBloodFrenzy()
+    FDA_Settings.UseBloodFrenzy = not FDA_Settings.UseBloodFrenzy
+    local status = FDA_Settings.UseBloodFrenzy and "|cff00ff00enabled|r" or "|cffff0000disabled|r"
+    DEFAULT_CHAT_FRAME:AddMessage("Blood Frenzy usage is now " .. status .. ".")
 end
 
 function FDA.GetEnergy()
     if FDA.IsInCatForm() then
-        return UnitMana("player") or 0 -- Ensure energy is never nil
+        return UnitMana("player") or 0
     end
-    return 0 -- Default to 0 if not in Cat Form
+    return 0
 end
 
 function FDA.GetCurrentComboPoints()
-    return GetComboPoints("player", "target") or 0 -- Ensure combo points are never nil
+    return GetComboPoints("player", "target") or 0
 end
 
 function FDA.HasClearcastingBuff()
@@ -192,7 +203,6 @@ function FDA.HasFaerieFireDebuff()
     return false
 end
 
--- Function to record static main-hand attack speed and save it persistently
 function FDA.RecordStaticAttackSpeed()
     local mainHandSpeed = UnitAttackSpeed("player")
     if mainHandSpeed then
@@ -206,32 +216,8 @@ function FDA.RecordStaticAttackSpeed()
     end
 end
 
--- Slash command to manually record static main-hand attack speed
 SLASH_RECORDSTATICAS1 = "/recordas"
 SlashCmdList["RECORDSTATICAS"] = FDA.RecordStaticAttackSpeed
-
--- Function to determine if Tiger's Fury needs to be reapplied based on attack speed
-function FDA.HasTigersFuryBuff()
-    -- Get the current main-hand attack speed
-    local currentSpeed = UnitAttackSpeed("player")
-    local staticSpeed = FDA_Settings.StaticMainHandSpeed
-
-    -- Check if static speed is saved and valid
-    if not staticSpeed then
-        DEFAULT_CHAT_FRAME:AddMessage("Tiger's Fury check failed: Static attack speed not recorded. Use /recordas to save it.")
-        return false -- Assume Tiger's Fury is not active if no static speed is recorded
-    end
-
-    -- Calculate the percentage of current speed vs. static speed
-    local speedPercentage = (currentSpeed / staticSpeed) * 100
-
-    -- If the current speed is 84% or lower, Tiger's Fury does NOT need to be reapplied
-    if speedPercentage <= 84 then
-        return true -- Tiger's Fury effect is active
-    else
-        return false -- Tiger's Fury needs to be reapplied
-    end
-end
 
 function FDA.CastSpell(spellName)
     if spellName then
@@ -239,28 +225,9 @@ function FDA.CastSpell(spellName)
     end
 end
 
--- Function to check and cast Innervate if mana is low
-function FDA.CastInnervateIfLowMana()
-    local currentMana, maxMana = AceLibrary("DruidManaLib-1.0"):GetMana()
-
-    -- Use the cooldown tracking logic
-    local start, duration, enabled = FDA.GetSpellCooldownByName(FDA.INNERVATE_NAME)
-    if start > 0 and duration > 0 then
-        local cooldownRemaining = start + duration - GetTime()
-        return false -- Indicate that Innervate was not cast
-    end
-
-    if currentMana < 600 then
-        FDA.CastSpell(FDA.INNERVATE_NAME)
-        return true -- Indicate that Innervate was cast
-    end
-
-    return false
-end
-
 function FDA.IsInCatForm()
     local _, _, active = GetShapeshiftFormInfo(3)
-    return active or false -- Ensure active is never nil
+    return active or false
 end
 
 function FDA.CastFaerieFire()
@@ -269,13 +236,70 @@ function FDA.CastFaerieFire()
     end
 end
 
-function FDA.CastTigersFury()
-    if not FDA.HasTigersFuryBuff() then
+-----------------------------
+-- Blood Frenzy Event Tracking Functions
+-----------------------------
+
+function FDA.OnEvent(self, event, arg1)
+    if event == "CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS" then
+        if arg1 and string.find(arg1, "You gain Blood Frenzy") then
+            FDA.BF_LastGainTime = GetTime()
+            FDA.debug_print("Blood Frenzy gained at: " .. FDA.BF_LastGainTime)
+        elseif arg1 and string.find(arg1, "You can Blood Frenzy") then
+            FDA.BF_ReadyTime = GetTime()
+            FDA.debug_print("Blood Frenzy ready timer started at: " .. FDA.BF_ReadyTime)
+        end
+    elseif event == "CHAT_MSG_SPELL_AURA_GONE_SELF" then
+        if arg1 and string.find(arg1, "Blood Frenzy fades from you") then
+            FDA.BF_LastFadeTime = GetTime()
+            FDA.debug_print("Blood Frenzy faded at: " .. FDA.BF_LastFadeTime)
+        end
+    end
+end
+
+function FDA.ShouldCastBloodFrenzy()
+    if not FDA_Settings.UseBloodFrenzy then
+        return false
+    end
+
+    local now = GetTime()
+    local isActive = false
+    if FDA.BF_LastGainTime > 0 and (now - FDA.BF_LastGainTime < 18) then
+        isActive = true
+    end
+    if FDA.BF_LastFadeTime > FDA.BF_LastGainTime then
+        isActive = false
+    end
+
+    local nearExpiry = false
+    if FDA.BF_ReadyTime > 0 then
+        local timeSinceReady = now - FDA.BF_ReadyTime
+        if timeSinceReady >= 15 then  -- Within last 3 seconds of the 18-second timer
+            nearExpiry = true
+        end
+    end
+
+    if (not isActive) or nearExpiry then
+        return true
+    end
+
+    return false
+end
+
+function FDA.CastBloodFrenzy()
+    if FDA_Settings.UseBloodFrenzy and FDA.ShouldCastBloodFrenzy() then
         FDA.CastSpell(FDA.TIGERS_FURY_NAME)
+        FDA.BF_LastGainTime = GetTime()
+        FDA.BF_LastFadeTime = 0
+        FDA.BF_ReadyTime = 0
         return true
     end
     return false
 end
+
+-----------------------------
+-- Powershift Function
+-----------------------------
 
 function FDA.PowershiftIfLowEnergy()
     local energy = FDA.GetEnergy()
@@ -289,35 +313,11 @@ function FDA.PowershiftIfLowEnergy()
     end
 end
 
-function FDA.CastShred()
-    local currentEnergy = FDA.GetEnergy()
+-----------------------------
+-- Rotation Functions
+-----------------------------
 
-    if currentEnergy >= FDA.SHRED_ENERGY or FDA.HasClearcastingBuff() then
-        FDA.CastSpell(FDA.SHRED_NAME)
-    else
-    end
-end
-
-function FDA.CastFerociousBite()
-    local currentEnergy = FDA.GetEnergy()
-    local comboPoints = FDA.GetCurrentComboPoints()
-
-    if comboPoints == 5 and (currentEnergy < 79 and currentEnergy >= FDA.FEROCIOUS_BITE_ENERGY) or FDA.HasClearcastingBuff() then
-        FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
-    else
-    end
-end
-
-function FDA.CastShredHighEnergy()
-    local currentEnergy = FDA.GetEnergy()
-    local comboPoints = FDA.GetCurrentComboPoints()
-
-    -- Cast Shred if combo points are 5 and energy is greater than or equal to 83
-    if currentEnergy >= 80 and comboPoints == 5 then
-        FDA.CastSpell(FDA.SHRED_NAME) -- Cast Shred using the spell name
-    end
-end
-
+-- Shred-based (behind target) rotation
 function FDA.FeralDruidRotation()
     if FDA_Settings.UseInnervate and FDA.CastInnervateIfLowMana() then
         return
@@ -328,14 +328,14 @@ function FDA.FeralDruidRotation()
         return
     end
 
-    if FDA_Settings.UseTigersFury and FDA.CastTigersFury() then
-        return
+    if FDA.CastBloodFrenzy() then
+        return -- Exit if Blood Frenzy (triggered by Tiger's Fury) was cast
     end
 
     FDA.CastFaerieFire()
 
     if FDA.HasClearcastingBuff() then
-        FDA.CastShred()
+        FDA.CastSpell(FDA.SHRED_NAME) -- Immediate Shred with Clearcasting
         return
     end
 
@@ -343,104 +343,89 @@ function FDA.FeralDruidRotation()
     local currentEnergy = FDA.GetEnergy()
 
     if comboPoints < 5 then
-        FDA.CastShred()
+        FDA.CastSpell(FDA.SHRED_NAME)
     elseif comboPoints == 5 and currentEnergy >= 80 then
-        FDA.CastShredHighEnergy()
+        FDA.CastSpell(FDA.SHRED_NAME)
     else
-        FDA.CastFerociousBite()
+        if currentEnergy >= FDA.FEROCIOUS_BITE_ENERGY then
+            FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
+        end
     end
 
     FDA.PowershiftIfLowEnergy()
 end
 
--- Function to cast Faerie Fire (Feral) if not already applied on the target
-function FDA.CastFaerieFire()
-    if not FDA.HasFaerieFireDebuff() then
-        FDA.CastSpell(FDA.FAERIE_FIRE_FERAL_NAME)
-    end
-end
-
--- Function to cast Tiger's Fury if not already active
-function FDA.CastTigersFury()
-    if not FDA.HasTigersFuryBuff() then
-        FDA.CastSpell(FDA.TIGERS_FURY_NAME)
-        return true
-    end
-    return false
-end
-
--- Function to cast Faerie Fire (Feral) if not already applied on the target
-function FDA.CastFaerieFire()
-    if not FDA.HasFaerieFireDebuff() then
-        FDA.CastSpell(FDA.FAERIE_FIRE_FERAL_NAME)
-    end
-end
-
--- Function to cast Tiger's Fury if not already active
-function FDA.CastTigersFury()
-    if not FDA.HasTigersFuryBuff() then
-        FDA.CastSpell(FDA.TIGERS_FURY_NAME)
-        return true
-    end
-    return false
-end
-
--- New Claw-based rotation function
+-- Claw-based (not behind target) rotation
 function FDA.FeralDruidClawRotation()
-    -- Check if mana is low and cast Innervate if needed
     if FDA_Settings.UseInnervate and FDA.CastInnervateIfLowMana() then
         return
     end
 
-    -- Check if not in Cat Form, and shift into it if needed
     if not FDA.IsInCatForm() then
         FDA.CastSpell(FDA.CAT_FORM_NAME)
         return
     end
 
-    -- Prioritize casting Tiger's Fury if the buff is not active
-    if FDA.CastTigersFury() then
-        return -- Exit the function if Tiger's Fury was cast
+    if FDA.CastBloodFrenzy() then
+        return -- Exit if Blood Frenzy was cast
     end
 
-    -- Cast Faerie Fire (Feral) if not on the target
     FDA.CastFaerieFire()
 
-    -- Prioritize Clearcasting Claw
     if FDA.HasClearcastingBuff() then
-        FDA.CastSpell("Claw") -- Use Claw immediately with Clearcasting
+        FDA.CastSpell("Claw")
         return
     end
 
-    -- Perform Claw or Ferocious Bite based on combo points and energy
     local comboPoints = FDA.GetCurrentComboPoints()
     local currentEnergy = FDA.GetEnergy()
 
     if comboPoints < 5 then
-        -- Cast Claw if combo points are less than 5
         FDA.CastSpell("Claw")
     elseif comboPoints == 5 and currentEnergy >= 80 then
-        -- Cast Ferocious Bite if combo points are 5 and energy >= 80
         FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
     else
-        -- Cast Ferocious Bite if combo points are 5 and energy is less than 80 but enough to cast
         if currentEnergy >= FDA.FEROCIOUS_BITE_ENERGY then
             FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
-        else
         end
     end
 
-    -- Attempt to powershift if energy is below threshold and no Clearcasting buff
     FDA.PowershiftIfLowEnergy()
 end
 
--- Slash command for the new Claw-based rotation
+-- Combined rotation: uses shred rotation if behind target, claw rotation if not.
+function FDA.FeralDruidCombinedRotation()
+    local isBehind = UnitXP("behind", "player", "target")
+    if isBehind then
+        FDA.FeralDruidRotation()
+    else
+        FDA.FeralDruidClawRotation()
+    end
+end
+
+-----------------------------
+-- Slash Commands
+-----------------------------
+
 SLASH_FERALCLAW1 = "/feralclaw"
 SlashCmdList["FERALCLAW"] = FDA.FeralDruidClawRotation
 
--- Slash commands
 SLASH_FERALATTACK1 = "/feralattack"
 SlashCmdList["FERALATTACK"] = FDA.FeralDruidRotation
 
 SLASH_TOGGLETS1 = "/ts"
-SlashCmdList["TOGGLETS"] = FDA.ToggleTigersFury
+SlashCmdList["TOGGLETS"] = FDA.ToggleBloodFrenzy
+
+SLASH_FERALCOMBINED1 = "/feralcombined"
+SlashCmdList["FERALCOMBINED"] = FDA.FeralDruidCombinedRotation
+
+-----------------------------
+-- Event Registration for Blood Frenzy Tracking
+-----------------------------
+
+local f = CreateFrame("Frame")
+f:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS")
+f:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_SELF")
+f:SetScript("OnEvent", function(self, event, arg1)
+    FDA.OnEvent(self, event, arg1)
+end)
