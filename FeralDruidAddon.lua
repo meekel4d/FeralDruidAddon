@@ -15,6 +15,9 @@ FDA.BF_LastGainTime = 0    -- Set when "You gain Blood Frenzy." is detected
 FDA.BF_LastFadeTime = 0    -- Set when "Blood Frenzy fades from you." is detected
 FDA.BF_ReadyTime    = 0    -- Set when "You can Blood Frenzy." is detected
 
+-- Clearcasting event tracking variable
+FDA.CC_IsActive = false    -- True when "You gain Clearcasting." is seen; false when it fades
+
 FDA.DEBUG = false
 
 -- Function to print messages to the chat frame
@@ -162,7 +165,7 @@ function FDA.CastInnervateIfLowMana()
     return false
 end
 
--- Toggle Blood Frenzy usage (i.e. whether to use the spell that triggers Blood Frenzy)
+-- Toggle Blood Frenzy usage (i.e. whether to use Tiger's Fury to trigger Blood Frenzy)
 function FDA.ToggleBloodFrenzy()
     FDA_Settings.UseBloodFrenzy = not FDA_Settings.UseBloodFrenzy
     local status = FDA_Settings.UseBloodFrenzy and "|cff00ff00enabled|r" or "|cffff0000disabled|r"
@@ -180,17 +183,9 @@ function FDA.GetCurrentComboPoints()
     return GetComboPoints("player", "target") or 0
 end
 
+-- New Clearcasting tracking: simply return the event-tracked flag.
 function FDA.HasClearcastingBuff()
-    for i = 0, 31 do
-        local id = GetPlayerBuff(i, "HELPFUL|HARMFUL|PASSIVE")
-        if id > -1 then
-            local texture = GetPlayerBuffTexture(id)
-            if texture == FDA.CLEARCASTING_TEXTURE then
-                return true
-            end
-        end
-    end
-    return false
+    return FDA.CC_IsActive
 end
 
 function FDA.HasFaerieFireDebuff()
@@ -237,9 +232,8 @@ function FDA.CastFaerieFire()
 end
 
 -----------------------------
--- Blood Frenzy Event Tracking Functions
+-- Blood Frenzy and Clearcasting Event Tracking Functions
 -----------------------------
-
 function FDA.OnEvent(self, event, arg1)
     if event == "CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS" then
         if arg1 and string.find(arg1, "You gain Blood Frenzy") then
@@ -249,40 +243,36 @@ function FDA.OnEvent(self, event, arg1)
             FDA.BF_ReadyTime = GetTime()
             FDA.debug_print("Blood Frenzy ready timer started at: " .. FDA.BF_ReadyTime)
         end
+        if arg1 and string.find(arg1, "You gain Clearcasting") then
+            FDA.CC_IsActive = true
+            FDA.debug_print("Clearcasting gained at: " .. GetTime())
+        end
     elseif event == "CHAT_MSG_SPELL_AURA_GONE_SELF" then
         if arg1 and string.find(arg1, "Blood Frenzy fades from you") then
             FDA.BF_LastFadeTime = GetTime()
             FDA.debug_print("Blood Frenzy faded at: " .. FDA.BF_LastFadeTime)
         end
+        if arg1 and string.find(arg1, "Clearcasting fades from you") then
+            FDA.CC_IsActive = false
+            FDA.debug_print("Clearcasting faded at: " .. GetTime())
+        end
     end
 end
 
+-- Updated refresh logic for Blood Frenzy:
+-- If Blood Frenzy is not active OR it’s been active for 15+ seconds (i.e. within 3 seconds of its 18 sec duration), return true.
 function FDA.ShouldCastBloodFrenzy()
     if not FDA_Settings.UseBloodFrenzy then
         return false
     end
-
     local now = GetTime()
-    local isActive = false
-    if FDA.BF_LastGainTime > 0 and (now - FDA.BF_LastGainTime < 18) then
-        isActive = true
-    end
-    if FDA.BF_LastFadeTime > FDA.BF_LastGainTime then
-        isActive = false
-    end
-
-    local nearExpiry = false
-    if FDA.BF_ReadyTime > 0 then
-        local timeSinceReady = now - FDA.BF_ReadyTime
-        if timeSinceReady >= 15 then  -- Within last 3 seconds of the 18-second timer
-            nearExpiry = true
-        end
-    end
-
-    if (not isActive) or nearExpiry then
+    local isActive = (FDA.BF_LastGainTime > 0 and (now - FDA.BF_LastGainTime < 18) and (FDA.BF_LastFadeTime <= FDA.BF_LastGainTime))
+    if not isActive then
         return true
     end
-
+    if now - FDA.BF_LastGainTime >= 15 then
+        return true
+    end
     return false
 end
 
@@ -300,11 +290,9 @@ end
 -----------------------------
 -- Powershift Function
 -----------------------------
-
 function FDA.PowershiftIfLowEnergy()
     local energy = FDA.GetEnergy()
     local currentMana = AceLibrary("DruidManaLib-1.0"):GetMana()
-
     if energy < 11 and currentMana >= 306 and not FDA.HasClearcastingBuff() then
         if FDA.IsInCatForm() then
             FDA.CastSpell(FDA.CAT_FORM_NAME)
@@ -316,42 +304,34 @@ end
 -----------------------------
 -- Rotation Functions
 -----------------------------
-
 -- Shred-based (behind target) rotation
 function FDA.FeralDruidRotation()
     if FDA_Settings.UseInnervate and FDA.CastInnervateIfLowMana() then
         return
     end
-
     if not FDA.IsInCatForm() then
         FDA.CastSpell(FDA.CAT_FORM_NAME)
         return
     end
-
     if FDA.CastBloodFrenzy() then
         return -- Exit if Blood Frenzy (triggered by Tiger's Fury) was cast
     end
-
     FDA.CastFaerieFire()
-
     if FDA.HasClearcastingBuff() then
         FDA.CastSpell(FDA.SHRED_NAME) -- Immediate Shred with Clearcasting
         return
     end
-
     local comboPoints = FDA.GetCurrentComboPoints()
     local currentEnergy = FDA.GetEnergy()
-
     if comboPoints < 5 then
         FDA.CastSpell(FDA.SHRED_NAME)
     elseif comboPoints == 5 and currentEnergy >= 80 then
         FDA.CastSpell(FDA.SHRED_NAME)
     else
-        if currentEnergy >= FDA.FEROCIOUS_BITE_ENERGY then
+        if not FDA.HasClearcastingBuff() and currentEnergy >= FDA.FEROCIOUS_BITE_ENERGY then
             FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
         end
     end
-
     FDA.PowershiftIfLowEnergy()
 end
 
@@ -360,26 +340,20 @@ function FDA.FeralDruidClawRotation()
     if FDA_Settings.UseInnervate and FDA.CastInnervateIfLowMana() then
         return
     end
-
     if not FDA.IsInCatForm() then
         FDA.CastSpell(FDA.CAT_FORM_NAME)
         return
     end
-
     if FDA.CastBloodFrenzy() then
         return -- Exit if Blood Frenzy was cast
     end
-
     FDA.CastFaerieFire()
-
     if FDA.HasClearcastingBuff() then
         FDA.CastSpell("Claw")
         return
     end
-
     local comboPoints = FDA.GetCurrentComboPoints()
     local currentEnergy = FDA.GetEnergy()
-
     if comboPoints < 5 then
         FDA.CastSpell("Claw")
     elseif comboPoints == 5 and currentEnergy >= 80 then
@@ -389,11 +363,11 @@ function FDA.FeralDruidClawRotation()
             FDA.CastSpell(FDA.FEROCIOUS_BITE_NAME)
         end
     end
-
     FDA.PowershiftIfLowEnergy()
 end
 
--- Combined rotation: uses shred rotation if behind target, claw rotation if not.
+-- Combined rotation function:
+-- Uses UnitXP("behind", "player", "target") to choose between shred and claw rotations.
 function FDA.FeralDruidCombinedRotation()
     local isBehind = UnitXP("behind", "player", "target")
     if isBehind then
@@ -406,7 +380,6 @@ end
 -----------------------------
 -- Slash Commands
 -----------------------------
-
 SLASH_FERALCLAW1 = "/feralclaw"
 SlashCmdList["FERALCLAW"] = FDA.FeralDruidClawRotation
 
@@ -420,9 +393,8 @@ SLASH_FERALCOMBINED1 = "/feralcombined"
 SlashCmdList["FERALCOMBINED"] = FDA.FeralDruidCombinedRotation
 
 -----------------------------
--- Event Registration for Blood Frenzy Tracking
+-- Event Registration for Blood Frenzy and Clearcasting Tracking
 -----------------------------
-
 local f = CreateFrame("Frame")
 f:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS")
 f:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_SELF")
